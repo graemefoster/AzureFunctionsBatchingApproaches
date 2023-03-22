@@ -44,11 +44,10 @@ public static class TopLevelHttpTriggers
         var container = client.GetBlobContainerClient("minibatches");
         await container.CreateIfNotExistsAsync();
 
-        await Task.WhenAll(customers.BreakBatch(2000).Select((batch, idx) =>
-            container.UploadBlobAsync($"{batchId}/{idx}.json", new BinaryData(batch.ToArray()))));
+        await container.UploadBlobAsync($"{batchId}/1.json", new BinaryData(customers.ToArray()));
 
-        await controlQueue.AddAsync(batchId); 
         await BatchService.Instance.Enqueued();
         return new OkResult();
     }
 }
+

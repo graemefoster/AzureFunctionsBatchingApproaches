@@ -17,10 +17,10 @@ class BatchService
     public Task<string[]> GetCustomersForBatch()
     {
         //simulating if the api was async
-        return Task.FromResult(Enumerable.Range(0, 300000)
+        return Task.FromResult(Enumerable.Range(1, 2000)
             .Select(x => $"{x}-{Guid.NewGuid().ToString().ToUpperInvariant()}").ToArray());
     }
-
+    
     public Task Enqueuing()
     {
         _batchStatus = BatchStatus.Enqueuing;
