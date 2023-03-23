@@ -3,30 +3,33 @@ using System.Linq;
 using System.Threading.Tasks;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
+using BatchDurable.Durable;
 using BatchDurable.PretendBatchService;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Extensions.Logging;
 
 namespace BatchDurable;
 
 public static class TopLevelHttpTriggers
 {
-    // [FunctionName("TriggerBatchHttp")]
-    // public static async Task<IActionResult> RunAsync(
-    //     [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req, 
-    //     ILogger log, 
-    //     [DurableClient] IDurableOrchestrationClient durableOrchestrationClient)
-    // {
-    //     var newRun = await durableOrchestrationClient.StartNewAsync(nameof(RunBatch), null);
-    //     return new OkObjectResult(new
-    //     {
-    //         durableInstanceId = newRun
-    //     });
-    // }
-    //
+    [FunctionName("TriggerBatchHttp")]
+    public static async Task<IActionResult> RunAsync(
+        [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req, 
+        ILogger log, 
+        [DurableClient] IDurableOrchestrationClient durableOrchestrationClient)
+    {
+        var newRun = await durableOrchestrationClient.StartNewAsync(nameof(RunBatch), null);
+        return new OkObjectResult(new
+        {
+            durableInstanceId = newRun
+        });
+    }
+    
+    
     [FunctionName("TriggerQueueHttp")]
     public static async Task<IActionResult> RunHttpAsync(
         [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req, 
