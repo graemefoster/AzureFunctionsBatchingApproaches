@@ -3,6 +3,7 @@
         <TargetFramework>net6.0</TargetFramework>
         <AzureFunctionsVersion>V4</AzureFunctionsVersion>
         <Nullable>enable</Nullable>
+        <RootNamespace>BatchDurable</RootNamespace>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.DurableTask" Version="2.9.2" />

@@ -1,26 +1,25 @@
-﻿using System.Threading.Tasks;
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Azure;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
-using BatchDurable.Durable;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
-namespace BatchDurable.MiniBatchesInQueues;
+namespace BatchDurable.ExplicitQueueBasedFunction;
 
-public static class QueueBatchTrigger
+public static class QueueBasedFunctions
 {
-    public class MiniBatch
-    {
-        public string[] Customers { get; set; } = default!;
-        public string BatchId { get; set; } = default!;
-    }
-
-    [FunctionName("MaxiBatchTrigger")]
+    /// <summary>
+    /// This function is triggered by a new blob arriving that contains the batch information.
+    /// If it decides there are too many items in the batch, it splits it into 2 and allows those new smaller batches to retrigger the function.
+    /// If it is happy with the batch size, it enqueues the items onto a queue for processing.
+    /// This limits the execution time of this function, protecting against any unexpected termination.
+    /// </summary>
+    [FunctionName("BatchSplitter")]
     public static async Task RunAsync(
         [BlobTrigger("minibatches/{batchId}/{name}", Connection = "StorageConnectionString")]
         Stream stream,
@@ -34,7 +33,6 @@ public static class QueueBatchTrigger
         var customers = JsonConvert.DeserializeObject<string[]>(await reader.ReadToEndAsync())!;
         if (customers.Length > 100)
         {
-            //split batch into 2
             log.LogInformation("Splitting batch of {Length}", customers.Length);
             var client = new BlobServiceClient(Environment.GetEnvironmentVariable("StorageConnectionString"));
             var container = client.GetBlobContainerClient("minibatches");
@@ -54,6 +52,12 @@ public static class QueueBatchTrigger
         }
     }
 
+    /// <summary>
+    /// This function processes an item.
+    /// This example uses table-storage to detect an already processed matching request.
+    /// If an existing item exists, but it's not marked as complete, then the function will re-execute the processing logic.
+    /// This provides at-least once, but with a fairly primitive yet 'good enough' simple de-dupe.
+    /// </summary>
     [FunctionName("CustomerTrigger")]
     public static async Task RunCustomerAsync(
         [QueueTrigger("processQueue", Connection = "StorageConnectionString")]
@@ -79,7 +83,7 @@ public static class QueueBatchTrigger
             var upsertResult = await client.AddEntityAsync(customer)!;
             await ProcessCustomer(customer);
             customer.Processed = true;
-            await client.UpdateEntityAsync(customer, upsertResult.Headers.ETag.Value);
+            await client.UpdateEntityAsync(customer, upsertResult.Headers.ETag!.Value);
         }
         catch (RequestFailedException re)
         {
@@ -98,14 +102,21 @@ public static class QueueBatchTrigger
                 }
             }
         }
+        log.LogInformation("Processed customer {CustomerId}", customerId);
     }
 
+    /// <summary>
+    /// Custom processing logic would go here.
+    /// </summary>
     private static async Task ProcessCustomer(CustomerProcess customer)
     {
         customer.Processed = true;
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        await Task.Delay(TimeSpan.FromSeconds(1));
     }
 
+    /// <summary>
+    /// Simple table-storage entity used to capture processed records to help de-dupe.
+    /// </summary>
     public class CustomerProcess : ITableEntity
     {
         public string CustomerId { get; set; } = default!;

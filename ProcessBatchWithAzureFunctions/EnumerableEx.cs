@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 
-namespace BatchDurable.Durable;
+namespace BatchDurable;
 
 public static class EnumerableEx
 {

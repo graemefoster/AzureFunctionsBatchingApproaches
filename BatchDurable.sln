@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BatchDurable", "BatchDurable\BatchDurable.csproj", "{09BFEC90-1F19-4026-A712-9BFED5C63117}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProcessBatchWithAzureFunctions", "ProcessBatchWithAzureFunctions\ProcessBatchWithAzureFunctions.csproj", "{09BFEC90-1F19-4026-A712-9BFED5C63117}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

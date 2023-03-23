@@ -2,7 +2,7 @@
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace BatchDurable.PretendBatchService;
+namespace BatchDurable;
 
 class BatchService
 {
@@ -18,7 +18,7 @@ class BatchService
     {
         //simulating if the api was async
         return Task.FromResult(Enumerable.Range(1, int.Parse(Environment.GetEnvironmentVariable("BatchSize")!))
-            .Select(x => $"{Guid.NewGuid().ToString().ToUpperInvariant().Substring(4)}.{x}").ToArray());
+            .Select(x => $"{Guid.NewGuid().ToString().ToUpperInvariant().Substring(0, 4)}.{x}").ToArray());
     }
     
     public Task Enqueuing()
@@ -42,5 +42,10 @@ class BatchService
         Terminated,
         Completed
     }
-    
+
+    public Task Completed()
+    {
+        _batchStatus = BatchStatus.Completed;
+        return Task.CompletedTask;
+    }
 }
