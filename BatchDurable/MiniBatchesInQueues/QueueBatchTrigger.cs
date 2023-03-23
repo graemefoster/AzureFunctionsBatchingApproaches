@@ -32,7 +32,7 @@ public static class QueueBatchTrigger
     {
         using var reader = new StreamReader(stream);
         var customers = JsonConvert.DeserializeObject<string[]>(await reader.ReadToEndAsync())!;
-        if (customers.Length > 50)
+        if (customers.Length > 100)
         {
             //split batch into 2
             log.LogInformation("Splitting batch of {Length}", customers.Length);
@@ -43,6 +43,9 @@ public static class QueueBatchTrigger
             await Task.WhenAll(customers.BreakBatch(customers.Length / 2).Select((batch, idx) =>
                 container.UploadBlobAsync($"{batchId}/{Path.GetFileNameWithoutExtension(name)}-{idx}.json",
                     new BinaryData(batch.ToArray()))));
+            
+            //not hugely important but try and clean up after ourselves
+            await container.DeleteBlobIfExistsAsync($"{batchId}/{name}");
         }
         else
         {
@@ -107,10 +110,10 @@ public static class QueueBatchTrigger
         }
     }
 
-    private static Task ProcessCustomer(CustomerProcess customer)
+    private static async Task ProcessCustomer(CustomerProcess customer)
     {
         customer.Processed = true;
-        return Task.CompletedTask;
+        await Task.Delay(TimeSpan.FromSeconds(2));
     }
     
     public class CustomerProcess : ITableEntity
