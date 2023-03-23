@@ -2,7 +2,8 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Text;
+using Azure;
+using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using BatchDurable.Durable;
 using Microsoft.Azure.WebJobs;
@@ -15,32 +16,9 @@ public static class QueueBatchTrigger
 {
     public class MiniBatch
     {
-        public string[] Customers { get; set; }
+        public string[] Customers { get; set; } = default!;
+        public string BatchId { get; set; } = default!;
     }
-    //
-    // [FunctionName("QueueBatchTrigger")]
-    // public static async Task RunAsync(
-    //     [QueueTrigger("controlQueue", Connection = "StorageConnectionString")]
-    //     string batchId,
-    //     ILogger log,
-    //     [Queue("miniBatchQueue", Connection = "StorageConnectionString")]
-    //     IAsyncCollector<MiniBatch> miniBatchQueue)
-    // {
-    //     var client = new BlobServiceClient(Environment.GetEnvironmentVariable("StorageConnectionString"));
-    //     var container = client.GetBlobContainerClient("minibatches");
-    //
-    //     await Task.WhenAll(container.GetBlobs().Select(async miniBatch =>
-    //     {
-    //         var blobClient = container.GetBlobClient(miniBatch.Name);
-    //         using var stream = new MemoryStream();
-    //         await blobClient.DownloadToAsync(stream);
-    //         await stream.FlushAsync();
-    //         await miniBatchQueue.AddAsync(new MiniBatch
-    //             { Customers = JsonConvert.DeserializeObject<string[]>(Encoding.UTF8.GetString(stream.ToArray())) });
-    //     }));
-    // }
-    //
-    
     
     [FunctionName("MaxiBatchTrigger")]
     public static async Task RunAsync(
@@ -53,7 +31,7 @@ public static class QueueBatchTrigger
         string name)
     {
         using var reader = new StreamReader(stream);
-        var customers = JsonConvert.DeserializeObject<string[]>(await reader.ReadToEndAsync());
+        var customers = JsonConvert.DeserializeObject<string[]>(await reader.ReadToEndAsync())!;
         if (customers.Length > 50)
         {
             //split batch into 2
@@ -69,7 +47,7 @@ public static class QueueBatchTrigger
         else
         {
             //write this batch to the queue
-            await miniBatchQueue.AddAsync(new MiniBatch { Customers = customers });
+            await miniBatchQueue.AddAsync(new MiniBatch { BatchId = batchId, Customers = customers });
         }
     }
 
@@ -83,28 +61,65 @@ public static class QueueBatchTrigger
         [Queue("processQueue", Connection = "StorageConnectionString")]
         IAsyncCollector<string> processQueue)
     {
-        if (miniBatch.Customers.Length > 50)
-        {
-            //split the batch by writing two new queue entries
-            log.LogInformation("Large batch {CustomersLength} - splitting into 2", miniBatch.Customers.Length);
-            var batch1 = miniBatch.Customers.Take(miniBatch.Customers.Length / 2).ToArray();
-            var batch2 = miniBatch.Customers.Except(batch1).ToArray();
-            await miniBatchQueue.AddAsync(new MiniBatch { Customers = batch1 });
-            await miniBatchQueue.AddAsync(new MiniBatch { Customers = batch2 });
-        }
-        else
-        {
-            log.LogInformation("Processing minibatch of {CustomersLength}", miniBatch.Customers.Length);
-            await Task.WhenAll(miniBatch.Customers.Select(x => processQueue.AddAsync(x)));
-        }
+        log.LogInformation("Processing minibatch of {CustomersLength}", miniBatch.Customers.Length);
+        await Task.WhenAll(miniBatch.Customers.Select(x => processQueue.AddAsync($"{miniBatch.BatchId}|{x}")));
     }
 
     [FunctionName("CustomerTrigger")]
-    public static void RunCustomerAsync(
-        [QueueTrigger("processQueue", Connection = "StorageConnectionString")]
-        string customer,
+    public static async Task RunCustomerAsync(
+        [QueueTrigger("processQueue", Connection = "StorageConnectionString")] string customerAndBatch,
         ILogger log)
     {
-        log.LogInformation("Processing Customer {customer}", customer);
+        var bits = customerAndBatch.Split('|');
+        var batchId = bits[0];
+        var customerId = bits[1];
+        //check for the customer in table storage to reduce duplicate processing. We can handle them
+        var tableClient = new TableServiceClient(Environment.GetEnvironmentVariable("StorageConnectionString"));
+        var client = tableClient.GetTableClient("BatchProcess");
+        await client.CreateIfNotExistsAsync();
+
+        try
+        {
+            var existing = await client.GetEntityAsync<CustomerProcess>($"{batchId}-{customerId.Substring(0, 3)}", customerId);
+            if (!existing.Value.Processed)
+            {
+                var customer = existing.Value;
+                await ProcessCustomer(customer!);
+                customer.Processed = true;
+                await client.UpdateEntityAsync(customer, customer.ETag);
+            }
+            
+            //only process if not flagged as processed. Should protect against a lot of dupes. 
+        }
+        catch (RequestFailedException)
+        {
+            var customer = new CustomerProcess()
+            {
+                CustomerId = customerId,
+                Processed = false,
+                PartitionKey = $"{batchId}-{customerId.Substring(5)}",
+                RowKey = customerId
+            };
+            var upsertResult = await client.UpsertEntityAsync(customer)!;
+            await ProcessCustomer(customer);
+            customer.Processed = true;
+            await client.UpdateEntityAsync(customer, upsertResult.Headers.ETag.Value);
+        }
+    }
+
+    private static Task ProcessCustomer(CustomerProcess customer)
+    {
+        customer.Processed = true;
+        return Task.CompletedTask;
+    }
+    
+    public class CustomerProcess : ITableEntity
+    {
+        public string CustomerId { get; set; } = default!;
+        public bool Processed { get; set; }
+        public string PartitionKey { get; set; } = default!;
+        public string RowKey { get; set; } = default!;
+        public DateTimeOffset? Timestamp { get; set; }
+        public ETag ETag { get; set; }
     }
 }

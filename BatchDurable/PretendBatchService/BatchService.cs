@@ -17,8 +17,8 @@ class BatchService
     public Task<string[]> GetCustomersForBatch()
     {
         //simulating if the api was async
-        return Task.FromResult(Enumerable.Range(1, 2000)
-            .Select(x => $"{x}-{Guid.NewGuid().ToString().ToUpperInvariant()}").ToArray());
+        return Task.FromResult(Enumerable.Range(1, 10)
+            .Select(x => $"{Guid.NewGuid().ToString().ToUpperInvariant().Substring(4)}.{x}").ToArray());
     }
     
     public Task Enqueuing()

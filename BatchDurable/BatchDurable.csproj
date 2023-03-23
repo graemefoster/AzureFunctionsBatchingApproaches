@@ -2,12 +2,14 @@
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
         <AzureFunctionsVersion>V4</AzureFunctionsVersion>
+        <Nullable>enable</Nullable>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.DurableTask" Version="2.9.2" />
         <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.DurableTask.Analyzers" Version="0.5.0" />
         <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.Storage" Version="5.1.0" />
         <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.Storage.Queues" Version="5.1.0" />
+        <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.Tables" Version="1.1.0" />
         <PackageReference Include="Microsoft.NET.Sdk.Functions" Version="4.1.1" />
     </ItemGroup>
     <ItemGroup>
