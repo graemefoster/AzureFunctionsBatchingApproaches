@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using BatchDurable.PretendBatchService;
 using Microsoft.AspNetCore.Mvc;
@@ -32,6 +33,12 @@ public static class TopLevelHttpTriggers
         ILogger log,
         [Queue(queueName:"controlQueue", Connection = "StorageConnectionString")] IAsyncCollector<string> controlQueue)
     {
+
+        //pre-reqs create table
+        var tableServiceClient = new TableServiceClient(Environment.GetEnvironmentVariable("StorageConnectionString"));
+        var tableClient = tableServiceClient.GetTableClient("BatchProcess");
+        await tableClient.CreateIfNotExistsAsync();
+        
         var batchId = Guid.NewGuid().ToString();
         var customers = await BatchService.Instance.GetCustomersForBatch();
         await BatchService.Instance.Enqueuing();
