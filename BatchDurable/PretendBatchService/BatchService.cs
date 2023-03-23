@@ -17,7 +17,7 @@ class BatchService
     public Task<string[]> GetCustomersForBatch()
     {
         //simulating if the api was async
-        return Task.FromResult(Enumerable.Range(1, 10000)
+        return Task.FromResult(Enumerable.Range(1, int.Parse(Environment.GetEnvironmentVariable("BatchSize")!))
             .Select(x => $"{Guid.NewGuid().ToString().ToUpperInvariant().Substring(4)}.{x}").ToArray());
     }
     
