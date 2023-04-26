@@ -6,6 +6,7 @@ using Azure;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 
@@ -21,11 +22,10 @@ public static class QueueBasedFunctions
     /// </summary>
     [FunctionName("BatchSplitter")]
     public static async Task RunAsync(
-        [BlobTrigger("minibatches/{batchId}/{name}", Connection = "StorageConnectionString")]
-        Stream stream,
+        [BlobTrigger("minibatches/{batchId}/{name}", Connection = "StorageConnectionString")] Stream stream,
+        [Queue("processQueue", Connection = "StorageConnectionString")] IAsyncCollector<string> processQueue,
+        [DurableClient]IDurableEntityClient entityClient,
         ILogger log,
-        [Queue("processQueue", Connection = "StorageConnectionString")]
-        IAsyncCollector<string> processQueue,
         string batchId,
         string name)
     {
@@ -37,18 +37,21 @@ public static class QueueBasedFunctions
             var client = new BlobServiceClient(Environment.GetEnvironmentVariable("StorageConnectionString"));
             var container = client.GetBlobContainerClient("minibatches");
 
-            await Task.WhenAll(customers.BreakBatch(customers.Length / 2).Select((batch, idx) =>
+            var brokenBatches = await Task.WhenAll(customers.BreakBatch(customers.Length / 2).Select((batch, idx) =>
                 container.UploadBlobAsync($"{batchId}/{Path.GetFileNameWithoutExtension(name)}-{idx}.json",
                     new BinaryData(batch.ToArray()))));
 
             //not hugely important but try and clean up after ourselves
             await container.DeleteBlobIfExistsAsync($"{batchId}/{name}");
+            await entityClient.SignalEntityAsync<IBatchProcessState>(batchId, s => s.ProcessedFile(new ProcessedFileResult { NewBatches = brokenBatches.Length}));
+
         }
         else
         {
             //write this batch to the queue
             log.LogInformation("Processing minibatch of {CustomersLength}", customers.Length);
             await Task.WhenAll(customers.Select(x => processQueue.AddAsync($"{batchId}|{x}")));
+            await entityClient.SignalEntityAsync<IBatchProcessState>(batchId, s => s.ProcessedFile(new ProcessedFileResult { QueuedMessages = customers.Length}));
         }
     }
 
@@ -60,8 +63,8 @@ public static class QueueBasedFunctions
     /// </summary>
     [FunctionName("CustomerTrigger")]
     public static async Task RunCustomerAsync(
-        [QueueTrigger("processQueue", Connection = "StorageConnectionString")]
-        string customerAndBatch,
+        [QueueTrigger("processQueue", Connection = "StorageConnectionString")] string customerAndBatch,
+        [DurableClient]IDurableEntityClient durableEntityClient,
         ILogger log)
     {
         var bits = customerAndBatch.Split('|');
@@ -84,6 +87,8 @@ public static class QueueBasedFunctions
             await ProcessCustomer(customer);
             customer.Processed = true;
             await client.UpdateEntityAsync(customer, upsertResult.Headers.ETag!.Value);
+            await durableEntityClient.SignalEntityAsync<IBatchProcessState>(batchId, x => x.ProcessedCustomer());
+
         }
         catch (RequestFailedException re)
         {
@@ -99,6 +104,7 @@ public static class QueueBasedFunctions
                     await ProcessCustomer(customer!);
                     customer.Processed = true;
                     await client.UpdateEntityAsync(customer, customer.ETag);
+                    await durableEntityClient.SignalEntityAsync<IBatchProcessState>(batchId, x => x.ProcessedCustomer());
                 }
             }
         }
@@ -126,4 +132,5 @@ public static class QueueBasedFunctions
         public DateTimeOffset? Timestamp { get; set; }
         public ETag ETag { get; set; }
     }
+
 }

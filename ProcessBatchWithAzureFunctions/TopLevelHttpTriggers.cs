@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using BatchDurable.DurableFunction;
+using BatchDurable.ExplicitQueueBasedFunction;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
@@ -35,8 +36,8 @@ public static class TopLevelHttpTriggers
         [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)]
         HttpRequest req,
         ILogger log,
-        [Queue(queueName: "controlQueue", Connection = "StorageConnectionString")]
-        IAsyncCollector<string> controlQueue)
+        [Queue(queueName: "controlQueue", Connection = "StorageConnectionString")] IAsyncCollector<string> controlQueue,
+        [DurableClient]IDurableEntityClient entityClient)
     {
         //pre-reqs create table
         var tableServiceClient = new TableServiceClient(Environment.GetEnvironmentVariable("StorageConnectionString"));
@@ -45,14 +46,13 @@ public static class TopLevelHttpTriggers
 
         var batchId = Guid.NewGuid().ToString();
         var customers = await BatchService.Instance.GetCustomersForBatch();
-        await BatchService.Instance.Enqueuing();
         var client = new BlobServiceClient(Environment.GetEnvironmentVariable("StorageConnectionString"));
         var container = client.GetBlobContainerClient("minibatches");
         await container.CreateIfNotExistsAsync();
 
         await container.UploadBlobAsync($"{batchId}/1.json", new BinaryData(customers.ToArray()));
+        await entityClient.SignalEntityAsync<IBatchProcessState>(batchId, s => s.Initialise(customers.Length));
 
-        await BatchService.Instance.Enqueued();
         return new OkObjectResult(new
         {
             batchId = batchId

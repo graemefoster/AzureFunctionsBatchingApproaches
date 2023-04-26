@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 
 namespace BatchDurable;
 
-class BatchService
+public class BatchService
 {
     public static readonly BatchService Instance = new();
     
