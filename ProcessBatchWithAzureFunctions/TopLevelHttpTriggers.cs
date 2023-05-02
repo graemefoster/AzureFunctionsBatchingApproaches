@@ -36,7 +36,7 @@ public static class TopLevelHttpTriggers
         [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)]
         HttpRequest req,
         ILogger log,
-        [Queue(queueName: "controlQueue", Connection = "StorageConnectionString")] IAsyncCollector<string> controlQueue,
+        [Queue(queueName: "batchSplitQueue", Connection = "StorageConnectionString")] IAsyncCollector<string> batchSplitQueue,
         [DurableClient]IDurableEntityClient entityClient)
     {
         //pre-reqs create table
@@ -52,6 +52,7 @@ public static class TopLevelHttpTriggers
 
         await container.UploadBlobAsync($"{batchId}/1.json", new BinaryData(customers.ToArray()));
         await entityClient.SignalEntityAsync<IBatchProcessState>(batchId, s => s.Initialise(customers.Length));
+        await batchSplitQueue.AddAsync($"{batchId}/1.json");
 
         return new OkObjectResult(new
         {

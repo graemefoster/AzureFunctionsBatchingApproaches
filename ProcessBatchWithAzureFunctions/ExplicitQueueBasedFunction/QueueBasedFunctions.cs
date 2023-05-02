@@ -22,29 +22,39 @@ public static class QueueBasedFunctions
     /// </summary>
     [FunctionName("BatchSplitter")]
     public static async Task RunAsync(
-        [BlobTrigger("minibatches/{batchId}/{name}", Connection = "StorageConnectionString")] Stream stream,
+        [QueueTrigger("batchSplitQueue")] string blobName,
+        [Queue("batchSplitQueue", Connection = "StorageConnectionString")] IAsyncCollector<string> batchSplitQueue,
         [Queue("processQueue", Connection = "StorageConnectionString")] IAsyncCollector<string> processQueue,
+        [Blob("minibatches/{queueTrigger}", FileAccess.Read)] Stream stream,
         [DurableClient]IDurableEntityClient entityClient,
-        ILogger log,
-        string batchId,
-        string name)
+        ILogger log)
     {
         using var reader = new StreamReader(stream);
         var customers = JsonConvert.DeserializeObject<string[]>(await reader.ReadToEndAsync())!;
+        var batchId = blobName.Split("/")[0];
+
         if (customers.Length > 100)
         {
             log.LogInformation("Splitting batch of {Length}", customers.Length);
             var client = new BlobServiceClient(Environment.GetEnvironmentVariable("StorageConnectionString"));
             var container = client.GetBlobContainerClient("minibatches");
 
-            var brokenBatches = await Task.WhenAll(customers.BreakBatch(customers.Length / 2).Select((batch, idx) =>
-                container.UploadBlobAsync($"{batchId}/{Path.GetFileNameWithoutExtension(name)}-{idx}.json",
-                    new BinaryData(batch.ToArray()))));
-
+            var name = blobName.Split("/").Last();
+            
+            var brokenBatches = await Task.WhenAll(customers.BreakBatch(customers.Length / 2).Select(async (batch, idx) =>
+            {
+                var blobFullPath = $"{batchId}/{Path.GetFileNameWithoutExtension(name)}-{idx}.json";
+                await container.UploadBlobAsync(blobFullPath, new BinaryData(batch.ToArray()));
+                return blobFullPath;
+            }));
+            
+            //Enqueue messages to process the next set of blobs
+            await Task.WhenAll(brokenBatches.Select(x => batchSplitQueue.AddAsync(x)));
+            
             //not hugely important but try and clean up after ourselves
             await container.DeleteBlobIfExistsAsync($"{batchId}/{name}");
             await entityClient.SignalEntityAsync<IBatchProcessState>(batchId, s => s.ProcessedFile(new ProcessedFileResult { NewBatches = brokenBatches.Length}));
-
+            
         }
         else
         {
